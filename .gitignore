@@ -1,0 +1,62 @@
+### Project-Specific Files ###
+# Ignore the local SQLite database.
+neuron.db
+
+# Ignore the binary created by the Makefile.
+neuron
+
+# Ignore the build output directory.
+/build/
+
+### Go Dependencies & Artifacts ###
+# Ignore the vendor directory. Dependencies are managed by go.mod and go.sum.
+/vendor/
+
+# Ignore Go workspace files. These are specific to a local setup.
+go.work
+go.work.sum
+
+# Ignore compiled binaries for different operating systems.
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+### Testing & Profiling ###
+# Ignore compiled test binaries.
+*.test
+
+# Ignore test coverage and profiling output.
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+
+### Environment Variables ###
+# Ignore environment variable files. NEVER commit secrets.
+.env
+.env.*
+!/.env.example
+
+### IDE & Editor Configuration ###
+# VSCode
+.vscode/
+
+# JetBrains IDEs (GoLand, IntelliJ)
+.idea/
+
+# Vim / Neovim
+.*.swp
+.*.swo
+
+### Operating System Files ###
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+desktop.ini
