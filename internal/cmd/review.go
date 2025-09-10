@@ -24,7 +24,7 @@ var reviewCmd = &cobra.Command{
 	Use:   "review",
 	Short: "Start a spaced repetition review session",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		database, err := db.GetDB("neuron.db")
+		database, err := db.GetDB()
 		if err != nil {
 			return fmt.Errorf("failed to connect to database: %w", err)
 		}

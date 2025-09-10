@@ -25,7 +25,7 @@ and updating modified ones based on filename.`,
 		fmt.Printf("Starting import from directory: %s\n", notesPath)
 
 		// Get a database connection
-		database, err := db.GetDB("neuron.db")
+		database, err := db.GetDB()
 		if err != nil {
 			return fmt.Errorf("failed to connect to database: %w", err)
 		}

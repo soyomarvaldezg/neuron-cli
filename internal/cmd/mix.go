@@ -24,7 +24,7 @@ var mixCmd = &cobra.Command{
 	Long: `Starts a review session with a small number of randomly selected notes
 that are currently due. This helps improve memory by forcing context switching.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		database, err := db.GetDB("neuron.db")
+		database, err := db.GetDB()
 		if err != nil {
 			return err
 		}

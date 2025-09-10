@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -18,56 +20,51 @@ var (
 	once       sync.Once
 )
 
-func GetDB(dataSourceName string) (*sql.DB, error) {
-	var err error
+// GetDatabasePath determines the correct, centralized path for the database file.
+func GetDatabasePath() (string, error) {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("could not get user config directory: %w", err)
+	}
+	appDataDir := filepath.Join(configDir, "neuron-cli")
+	if err := os.MkdirAll(appDataDir, 0755); err != nil {
+		return "", fmt.Errorf("could not create app data directory: %w", err)
+	}
+	return filepath.Join(appDataDir, "neuron.db"), nil
+}
+
+// GetDB establishes a singleton connection to the SQLite database.
+func GetDB() (*sql.DB, error) {
 	once.Do(func() {
-		dbInstance, err = sql.Open("sqlite3", dataSourceName)
+		dbPath, err := GetDatabasePath()
 		if err != nil {
-			return
+			log.Fatalf("FATAL: Could not determine database path: %v", err)
+		}
+		dbInstance, err = sql.Open("sqlite3", dbPath)
+		if err != nil {
+			log.Fatalf("FATAL: Could not open database at %s: %v", dbPath, err)
 		}
 		if err = dbInstance.Ping(); err != nil {
-			return
+			log.Fatalf("FATAL: Could not connect to database at %s: %v", dbPath, err)
 		}
-		log.Println("Database connection established.")
-		err = createTables(dbInstance)
+		log.Println("Database connection established at:", dbPath)
+
+		if err = createTables(dbInstance); err != nil {
+			log.Fatalf("FATAL: Could not create database tables: %v", err)
+		}
 	})
-	return dbInstance, err
+	return dbInstance, nil
 }
 
 func createTables(db *sql.DB) error {
-	notesTableSQL := `
-    CREATE TABLE IF NOT EXISTS notes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        filename TEXT NOT NULL UNIQUE,
-        title TEXT NOT NULL,
-        tags TEXT,
-        content TEXT NOT NULL,
-        created_at TIMESTAMP,
-        due_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        interval REAL DEFAULT 1.0,
-        ease_factor REAL DEFAULT 2.5
-    );`
+	notesTableSQL := `CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, filename TEXT NOT NULL UNIQUE, title TEXT NOT NULL, tags TEXT, content TEXT NOT NULL, created_at TIMESTAMP, due_date TIMESTAMP NOT NULL, interval REAL, ease_factor REAL);`
 	_, err := db.Exec(notesTableSQL)
-	if err != nil {
-		return err
-	}
-	log.Println("Notes table created or already exists.")
-	return nil
+	return err
 }
 
 func InsertNote(db *sql.DB, n *note.Note) error {
-	tagsJSON, err := json.Marshal(n.Tags)
-	if err != nil {
-		return err
-	}
-	query := `
-    INSERT INTO notes (filename, title, tags, content, created_at, due_date, interval, ease_factor)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(filename) DO UPDATE SET
-        title=excluded.title,
-        tags=excluded.tags,
-        content=excluded.content,
-        created_at=excluded.created_at;`
+	tagsJSON, _ := json.Marshal(n.Tags)
+	query := `INSERT INTO notes (filename, title, tags, content, created_at, due_date, interval, ease_factor) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(filename) DO UPDATE SET title=excluded.title, tags=excluded.tags, content=excluded.content, created_at=excluded.created_at;`
 	stmt, err := db.Prepare(query)
 	if err != nil {
 		return err
@@ -78,110 +75,59 @@ func InsertNote(db *sql.DB, n *note.Note) error {
 }
 
 func GetDueNote(db *sql.DB) (*note.Note, error) {
-	query := `SELECT id, filename, title, tags, content, created_at, due_date, interval, ease_factor
-    FROM notes WHERE due_date <= ? ORDER BY due_date ASC LIMIT 1;`
+	query := `SELECT id, filename, title, tags, content, created_at, due_date, interval, ease_factor FROM notes WHERE due_date <= ? ORDER BY due_date ASC LIMIT 1;`
 	row := db.QueryRow(query, time.Now())
-	var n note.Note
-	var tagsJSON string
-	err := row.Scan(&n.ID, &n.Filename, &n.Title, &tagsJSON, &n.Content, &n.CreatedAt, &n.DueDate, &n.Interval, &n.EaseFactor)
-	if err != nil {
-		return nil, err
-	}
-	if err := json.Unmarshal([]byte(tagsJSON), &n.Tags); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal tags for note %d: %w", n.ID, err)
-	}
-	return &n, nil
+	return scanNote(row)
 }
 
-// UpdateNoteSRS saves the updated spaced repetition data for a note.
-// Note that this function is EXPORTED (starts with a capital U).
-func UpdateNoteSRS(db *sql.DB, n *note.Note) error {
-	query := `UPDATE notes SET due_date = ?, interval = ?, ease_factor = ? WHERE id = ?;`
-	stmt, err := db.Prepare(query)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	_, err = stmt.Exec(n.DueDate, n.Interval, n.EaseFactor, n.ID)
-	return err
-}
-
-// GetDueNotes fetches a specified number of random notes that are due for review.
 func GetDueNotes(db *sql.DB, limit int) ([]*note.Note, error) {
-	query := `SELECT id, filename, title, tags, content, created_at, due_date, interval, ease_factor
-    FROM notes
-    WHERE due_date <= ?
-    ORDER BY RANDOM()
-    LIMIT ?;`
-
+	query := `SELECT id, filename, title, tags, content, created_at, due_date, interval, ease_factor FROM notes WHERE due_date <= ? ORDER BY RANDOM() LIMIT ?;`
 	rows, err := db.Query(query, time.Now(), limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
 	var notes []*note.Note
-
 	for rows.Next() {
-		var n note.Note
-		var tagsJSON string
-
-		if err := rows.Scan(&n.ID, &n.Filename, &n.Title, &tagsJSON, &n.Content, &n.CreatedAt, &n.DueDate, &n.Interval, &n.EaseFactor); err != nil {
+		note, err := scanNote(rows)
+		if err != nil {
 			return nil, err
 		}
-
-		if err := json.Unmarshal([]byte(tagsJSON), &n.Tags); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal tags for note %d: %w", n.ID, err)
-		}
-		notes = append(notes, &n)
+		notes = append(notes, note)
 	}
-
 	return notes, nil
 }
 
-// GetNoteByTitleOrFilename fetches a single note that matches a title or filename.
-func GetNoteByTitleOrFilename(db *sql.DB, searchTerm string) (*note.Note, error) {
-	// The '%' are wildcards, so we can search for "parquet" instead of the full title.
-	query := `SELECT id, filename, title, tags, content, created_at, due_date, interval, ease_factor
-    FROM notes
-    WHERE title LIKE ? OR filename LIKE ?
-    LIMIT 1;`
-
-	searchTerm = "%" + searchTerm + "%" // Wrap search term in wildcards
-	row := db.QueryRow(query, searchTerm, searchTerm)
-
-	var n note.Note
-	var tagsJSON string
-
-	err := row.Scan(&n.ID, &n.Filename, &n.Title, &tagsJSON, &n.Content, &n.CreatedAt, &n.DueDate, &n.Interval, &n.EaseFactor)
-	if err != nil {
-		return nil, err // Will be sql.ErrNoRows if nothing is found
-	}
-
-	if err := json.Unmarshal([]byte(tagsJSON), &n.Tags); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal tags for note %d: %w", n.ID, err)
-	}
-	return &n, nil
+func GetAnyNote(db *sql.DB) (*note.Note, error) {
+	query := `SELECT id, filename, title, tags, content, created_at, due_date, interval, ease_factor FROM notes ORDER BY RANDOM() LIMIT 1;`
+	row := db.QueryRow(query)
+	return scanNote(row)
 }
 
-// GetAnyNote fetches a single random note from the entire collection, ignoring the due date.
-func GetAnyNote(db *sql.DB) (*note.Note, error) {
-	// This query is the same as GetDueNote, but without the WHERE clause.
-	query := `SELECT id, filename, title, tags, content, created_at, due_date, interval, ease_factor
-    FROM notes
-    ORDER BY RANDOM()
-    LIMIT 1;`
+func GetNoteByTitleOrFilename(db *sql.DB, searchTerm string) (*note.Note, error) {
+	query := `SELECT id, filename, title, tags, content, created_at, due_date, interval, ease_factor FROM notes WHERE title LIKE ? OR filename LIKE ? LIMIT 1;`
+	row := db.QueryRow(query, "%"+searchTerm+"%", "%"+searchTerm+"%")
+	return scanNote(row)
+}
 
-	row := db.QueryRow(query)
+func UpdateNoteSRS(db *sql.DB, n *note.Note) error {
+	query := `UPDATE notes SET due_date = ?, interval = ?, ease_factor = ? WHERE id = ?;`
+	_, err := db.Exec(query, n.DueDate, n.Interval, n.EaseFactor, n.ID)
+	return err
+}
 
+// scanNote is a helper to reduce code duplication when scanning a single row into a Note struct.
+type scannable interface {
+	Scan(dest ...any) error
+}
+
+func scanNote(row scannable) (*note.Note, error) {
 	var n note.Note
 	var tagsJSON string
-
 	err := row.Scan(&n.ID, &n.Filename, &n.Title, &tagsJSON, &n.Content, &n.CreatedAt, &n.DueDate, &n.Interval, &n.EaseFactor)
 	if err != nil {
 		return nil, err
 	}
-
 	if err := json.Unmarshal([]byte(tagsJSON), &n.Tags); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal tags for note %d: %w", n.ID, err)
 	}

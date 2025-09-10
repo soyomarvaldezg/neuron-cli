@@ -24,7 +24,7 @@ explore its connections and deepen your understanding.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		topic := args[0]
 
-		database, err := db.GetDB("neuron.db")
+		database, err := db.GetDB()
 		if err != nil {
 			return err
 		}
