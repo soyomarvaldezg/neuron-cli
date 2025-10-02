@@ -12,13 +12,14 @@ import (
 	"time"
 
 	"github.com/soyomarvaldezg/neuron-cli/internal/db"
-	"github.com/soyomarvaldezg/neuron-cli/internal/note" // <-- Make sure this is imported
+	"github.com/soyomarvaldezg/neuron-cli/internal/note"
 	"github.com/soyomarvaldezg/neuron-cli/internal/study"
 	"github.com/spf13/cobra"
 )
 
-// This variable will hold the value of the --any flag.
+// These variables will hold the values of the flags.
 var reviewAny bool
+var reviewBrief bool
 
 var reviewCmd = &cobra.Command{
 	Use:   "review",
@@ -29,16 +30,14 @@ var reviewCmd = &cobra.Command{
 			return fmt.Errorf("failed to connect to database: %w", err)
 		}
 
-		var dueNote *note.Note // Declare the variable to hold the note
+		var dueNote *note.Note
 
-		// --- THIS IS THE NEW LOGIC ---
 		if reviewAny {
 			fmt.Println("Fetching a random note to review...")
 			dueNote, err = db.GetAnyNote(database)
 		} else {
 			dueNote, err = db.GetDueNote(database)
 		}
-		// --- END OF NEW LOGIC ---
 
 		if err != nil {
 			if err == sql.ErrNoRows {
@@ -52,7 +51,6 @@ var reviewCmd = &cobra.Command{
 			return fmt.Errorf("failed to fetch note: %w", err)
 		}
 
-		// The rest of the command is exactly the same...
 		fmt.Println("🧠 Generating question...")
 		question, err := study.GenerateQuestion(dueNote)
 		if err != nil {
@@ -75,20 +73,27 @@ var reviewCmd = &cobra.Command{
 		fmt.Println(conciseAnswer)
 		fmt.Println("-----------------------------------------------------------")
 
-		fmt.Print("   (Press Enter again to see the full note for context...)")
-		_, _ = reader.ReadString('\n')
-		fmt.Println("\n📖 Full Note Context:")
-		fmt.Println("-----------------------------------------------------------")
+		// Only ask about showing the full note if not in brief mode
+		if !reviewBrief {
+			fmt.Print("\n📖 Would you like to see the full note for additional context? (y/n): ")
+			showNote, _ := reader.ReadString('\n')
+			showNote = strings.TrimSpace(strings.ToLower(showNote))
 
-		renderedContent, err := renderMarkdown(dueNote.Content)
-		if err != nil {
-			fmt.Println("Error rendering markdown, showing raw content:")
-			fmt.Println(dueNote.Content)
-		} else {
-			fmt.Println(renderedContent)
+			if showNote == "y" || showNote == "yes" {
+				fmt.Println("\n📖 Full Note Context:")
+				fmt.Println("-----------------------------------------------------------")
+
+				renderedContent, err := renderMarkdown(dueNote.Content)
+				if err != nil {
+					fmt.Println("Error rendering markdown, showing raw content:")
+					fmt.Println(dueNote.Content)
+				} else {
+					fmt.Println(renderedContent)
+				}
+
+				fmt.Println("-----------------------------------------------------------")
+			}
 		}
-
-		fmt.Println("-----------------------------------------------------------")
 
 		var rating int
 		for {
@@ -116,8 +121,6 @@ var reviewCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(reviewCmd)
-	// --- THIS IS THE NEW LINE ---
-	// Here we define the --any flag, link it to our 'reviewAny' variable,
-	// and provide a help message.
 	reviewCmd.Flags().BoolVar(&reviewAny, "any", false, "Review any card, even if it's not due")
+	reviewCmd.Flags().BoolVar(&reviewBrief, "brief", false, "Skip showing full note, only show Q&A")
 }

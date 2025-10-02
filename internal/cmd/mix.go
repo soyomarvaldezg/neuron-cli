@@ -18,6 +18,8 @@ import (
 
 const reviewLimit = 3 // Number of notes to review in one 'mix' session
 
+var mixBrief bool
+
 var mixCmd = &cobra.Command{
 	Use:   "mix",
 	Short: "Start an interleaved review session with random due notes",
@@ -68,19 +70,27 @@ that are currently due. This helps improve memory by forcing context switching.`
 			fmt.Println(conciseAnswer)
 			fmt.Println("-----------------------------------------------------------")
 
-			fmt.Println("\n📖 Full Note Context:")
-			fmt.Println("-----------------------------------------------------------")
+			// Only ask about showing the full note if not in brief mode
+			if !mixBrief {
+				fmt.Print("\n📖 See full note? (y/n): ")
+				showNote, _ := reader.ReadString('\n')
+				showNote = strings.TrimSpace(strings.ToLower(showNote))
 
-			// THIS IS THE NEW RENDERED OUTPUT
-			renderedContent, err := renderMarkdown(dueNote.Content)
-			if err != nil {
-				fmt.Println("Error rendering markdown, showing raw content:")
-				fmt.Println(dueNote.Content)
-			} else {
-				fmt.Println(renderedContent)
+				if showNote == "y" || showNote == "yes" {
+					fmt.Println("\n📖 Full Note Context:")
+					fmt.Println("-----------------------------------------------------------")
+
+					renderedContent, err := renderMarkdown(dueNote.Content)
+					if err != nil {
+						fmt.Println("Error rendering markdown, showing raw content:")
+						fmt.Println(dueNote.Content)
+					} else {
+						fmt.Println(renderedContent)
+					}
+
+					fmt.Println("-----------------------------------------------------------")
+				}
 			}
-
-			fmt.Println("-----------------------------------------------------------")
 
 			var rating int
 			for {
@@ -108,4 +118,5 @@ that are currently due. This helps improve memory by forcing context switching.`
 
 func init() {
 	rootCmd.AddCommand(mixCmd)
+	mixCmd.Flags().BoolVar(&mixBrief, "brief", false, "Skip showing full note, only show Q&A")
 }

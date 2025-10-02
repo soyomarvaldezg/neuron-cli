@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/fatih/color" // <-- NEW IMPORT
+	"github.com/fatih/color"
 	"github.com/soyomarvaldezg/neuron-cli/internal/db"
 	"github.com/soyomarvaldezg/neuron-cli/internal/study"
 	"github.com/spf13/cobra"
@@ -36,7 +36,7 @@ var teachCmd = &cobra.Command{
 		}
 
 		fmt.Printf("--- Starting Feynman Session on: %s ---\n", noteToTeach.Title)
-		fmt.Println("Explain the topic in simple terms. The AI will ask questions. Type 'quit' to end.")
+		fmt.Println("Explain the topic in simple terms. The AI will ask questions.")
 		fmt.Println("---------------------------------------------------------------------------------")
 
 		messages := []study.OllamaMessage{
@@ -50,11 +50,15 @@ var teachCmd = &cobra.Command{
 			},
 		}
 
-		// --- NEW: Create colored printers ---
 		aiColor := color.New(color.FgCyan)
 		userColor := color.New(color.FgYellow, color.Bold)
 
 		reader := bufio.NewReader(os.Stdin)
+
+		// Show available commands at start
+		helpColor := color.New(color.FgGreen)
+		helpColor.Println("\n💡 Tip: Type 'help' anytime to see available commands\n")
+
 		for {
 			aiResponse, err := study.SendChatMessage(messages)
 			if err != nil {
@@ -62,16 +66,23 @@ var teachCmd = &cobra.Command{
 			}
 			messages = append(messages, aiResponse)
 
-			// --- NEW: Use the colored printers ---
 			aiColor.Printf("\n🤖 AI Student: %s\n", aiResponse.Content)
 			userColor.Print("You: ")
 
 			userInput, _ := reader.ReadString('\n')
 			userInput = strings.TrimSpace(userInput)
 
-			if strings.ToLower(userInput) == "quit" {
-				fmt.Println("Feynman session ended. Great work!")
-				break
+			// Check for special commands
+			isSpecial, shouldContinue, err := ProcessSpecialCommand(userInput, noteToTeach, &messages)
+			if err != nil {
+				return err
+			}
+			if isSpecial {
+				if !shouldContinue {
+					fmt.Println("Feynman session ended. Great work!")
+					break
+				}
+				continue // Skip adding to messages, show prompt again
 			}
 
 			messages = append(messages, study.OllamaMessage{Role: "user", Content: userInput})

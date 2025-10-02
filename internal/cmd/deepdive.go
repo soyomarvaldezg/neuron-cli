@@ -39,10 +39,9 @@ explore its connections and deepen your understanding.`,
 		}
 
 		fmt.Printf("--- Starting Deep Dive Session on: %s ---\n", noteToExplore.Title)
-		fmt.Println("The AI tutor will ask you questions. Explore your thoughts freely. Type 'quit' to end.")
+		fmt.Println("The AI tutor will ask you questions. Explore your thoughts freely.")
 		fmt.Println("---------------------------------------------------------------------------------")
 
-		// --- THIS IS THE KEY DIFFERENCE: The System Prompt ---
 		messages := []study.OllamaMessage{
 			{
 				Role:    "system",
@@ -58,6 +57,11 @@ explore its connections and deepen your understanding.`,
 		userColor := color.New(color.FgYellow, color.Bold)
 
 		reader := bufio.NewReader(os.Stdin)
+
+		// Show available commands at start
+		helpColor := color.New(color.FgGreen)
+		helpColor.Println("\n💡 Tip: Type 'help' anytime to see available commands\n")
+
 		for {
 			aiResponse, err := study.SendChatMessage(messages)
 			if err != nil {
@@ -71,9 +75,17 @@ explore its connections and deepen your understanding.`,
 			userInput, _ := reader.ReadString('\n')
 			userInput = strings.TrimSpace(userInput)
 
-			if strings.ToLower(userInput) == "quit" {
-				fmt.Println("Deep dive session ended. Excellent reflection!")
-				break
+			// Check for special commands
+			isSpecial, shouldContinue, err := ProcessSpecialCommand(userInput, noteToExplore, &messages)
+			if err != nil {
+				return err
+			}
+			if isSpecial {
+				if !shouldContinue {
+					fmt.Println("Deep dive session ended. Excellent reflection!")
+					break
+				}
+				continue
 			}
 
 			messages = append(messages, study.OllamaMessage{Role: "user", Content: userInput})
