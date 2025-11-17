@@ -171,141 +171,6 @@ MATERIAL:
 	return sendOllamaRequest(payload)
 }
 
-// GenerateAnswer asks the LLM to provide a concise answer to a specific question.
-func GenerateAnswer(question string, n *note.Note) (string, error) {
-	promptContent := extractSummary(n.Content)
-	prompt := fmt.Sprintf(`You are a learning coach providing pedagogically effective answers.
-
-QUESTION: %s
-
-YOUR TASK: Provide an answer that helps deep learning:
-1. Start with a direct 1-2 sentence answer
-2. Then explain the "why" or "how" behind it
-3. If applicable, give a concrete example or analogy
-4. End with a connection to a broader principle (if relevant)
-
-Keep it concise but insightful (3-5 sentences total).
-
-SOURCE MATERIAL:
----
-%s
----`, question, promptContent)
-	payload := OllamaRequest{Model: "llama3:8b-instruct-q4_K_M", Prompt: prompt, Stream: false}
-	return sendOllamaRequest(payload)
-}
-
-// CompareAnswers compares user's answer with the correct answer and provides feedback.
-func CompareAnswers(userAnswer, correctAnswer, question string) (string, error) {
-	prompt := fmt.Sprintf(`You are an expert learning coach comparing a student's answer with the correct answer.
-
-QUESTION: %s
-
-STUDENT'S ANSWER: %s
-
-CORRECT ANSWER: %s
-
-YOUR TASK: Provide constructive feedback in this format:
-1. ✅ What they got right (acknowledge correct parts)
-2. 🤔 What they missed or misunderstood (gaps in understanding)
-3. 💡 How to improve their understanding (specific suggestions)
-4. 📚 Key concepts they should review (if applicable)
-
-Be encouraging but precise. Focus on helping them understand, not just pointing out mistakes.`, question, userAnswer, correctAnswer)
-
-	payload := OllamaRequest{Model: "llama3:8b-instruct-q4_K_M", Prompt: prompt, Stream: false}
-	return sendOllamaRequest(payload)
-}
-
-// sendOllamaRequest is a private helper to reduce code duplication for the /api/generate endpoint.
-func sendOllamaRequest(payload OllamaRequest) (string, error) {
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return "", err
-	}
-	resp, err := http.Post("http://localhost:11434/api/generate", "application/json", bytes.NewBuffer(payloadBytes))
-	if err != nil {
-		return "", fmt.Errorf("failed to send request to ollama: %w. Is Ollama running?", err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	var ollamaResp OllamaResponse
-	if err := json.Unmarshal(body, &ollamaResp); err != nil {
-		return "", fmt.Errorf("failed to unmarshal ollama response: %w. Response was: %s", err, string(body))
-	}
-	return strings.TrimSpace(ollamaResp.Response), nil
-}
-
-// SendChatMessage sends a list of messages to the Ollama chat endpoint and returns the AI's response.
-func SendChatMessage(messages []OllamaMessage) (OllamaMessage, error) {
-	payload := OllamaChatRequest{
-		Model:    "llama3:8b-instruct-q4_K_M",
-		Messages: messages,
-		Stream:   false,
-	}
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return OllamaMessage{}, err
-	}
-	resp, err := http.Post("http://localhost:11434/api/chat", "application/json", bytes.NewBuffer(payloadBytes))
-	if err != nil {
-		return OllamaMessage{}, fmt.Errorf("failed to send chat request to ollama: %w", err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return OllamaMessage{}, err
-	}
-	var ollamaResp OllamaChatResponse
-	if err := json.Unmarshal(body, &ollamaResp); err != nil {
-		return OllamaMessage{}, fmt.Errorf("failed to unmarshal ollama chat response: %w. Response was: %s", err, string(body))
-	}
-	return ollamaResp.Message, nil
-}
-
-// extractSummary is a private helper function.
-func extractSummary(fullContent string) string {
-	var summary, takeaways strings.Builder
-	inSummary := false
-	inTakeaways := false
-	scanner := bufio.NewScanner(strings.NewReader(fullContent))
-	for scanner.Scan() {
-		line := scanner.Text()
-		lowerLine := strings.ToLower(line)
-		if strings.HasPrefix(lowerLine, "## summary") {
-			inSummary = true
-			inTakeaways = false
-			continue
-		}
-		if strings.HasPrefix(lowerLine, "## key takeaways") {
-			inSummary = false
-			inTakeaways = true
-			continue
-		}
-		if strings.HasPrefix(lowerLine, "##") {
-			inSummary = false
-			inTakeaways = false
-		}
-		if inSummary {
-			if !strings.HasPrefix(lowerLine, "## summary") {
-				summary.WriteString(line + "\n")
-			}
-		}
-		if inTakeaways {
-			if !strings.HasPrefix(lowerLine, "## key takeaways") {
-				takeaways.WriteString(line + "\n")
-			}
-		}
-	}
-	combined := summary.String() + takeaways.String()
-	if len(strings.TrimSpace(combined)) > 10 {
-		return combined
-	}
-	return fullContent
-}
-
 // GenerateQuestionWithVariation generates a question with a variation hint to avoid repetition.
 func GenerateQuestionWithVariation(n *note.Note, questionType QuestionType, attempt int) (string, error) {
 	promptContent := extractSummary(n.Content)
@@ -420,4 +285,160 @@ MATERIAL:
 
 	payload := OllamaRequest{Model: "llama3:8b-instruct-q4_K_M", Prompt: prompt, Stream: false}
 	return sendOllamaRequest(payload)
+}
+
+// GenerateAnswer asks the LLM to provide a concise answer to a specific question.
+func GenerateAnswer(question string, n *note.Note) (string, error) {
+	promptContent := extractSummary(n.Content)
+	prompt := fmt.Sprintf(`You are a learning coach providing pedagogically effective answers.
+
+QUESTION: %s
+
+YOUR TASK: Provide an answer that helps deep learning:
+1. Start with a direct 1-2 sentence answer
+2. Then explain the "why" or "how" behind it
+3. If applicable, give a concrete example or analogy
+4. End with a connection to a broader principle (if relevant)
+
+Keep it concise but insightful (3-5 sentences total).
+
+SOURCE MATERIAL:
+---
+%s
+---`, question, promptContent)
+	payload := OllamaRequest{Model: "llama3:8b-instruct-q4_K_M", Prompt: prompt, Stream: false}
+	return sendOllamaRequest(payload)
+}
+
+// CompareAnswers compares user's answer with the correct answer and provides feedback.
+func CompareAnswers(userAnswer, correctAnswer, question string) (string, error) {
+	prompt := fmt.Sprintf(`You are an expert learning coach comparing a student's answer with the correct answer.
+
+QUESTION: %s
+
+STUDENT'S ANSWER: %s
+
+CORRECT ANSWER: %s
+
+YOUR TASK: Provide constructive feedback in this format:
+1. ✅ What they got right (acknowledge correct parts)
+2. 🔍 What they missed or misunderstood (gaps in understanding)
+3. 💡 How to improve their understanding (specific suggestions)
+4. 📚 Key concepts they should review (if applicable)
+
+Be encouraging but precise. Focus on helping them understand, not just pointing out mistakes.`, question, userAnswer, correctAnswer)
+
+	payload := OllamaRequest{Model: "llama3:8b-instruct-q4_K_M", Prompt: prompt, Stream: false}
+	return sendOllamaRequest(payload)
+}
+
+// GenerateReflectionChallenges creates challenging questions to test the user's understanding.
+func GenerateReflectionChallenges(userExplanation, noteContent string) (string, error) {
+	prompt := fmt.Sprintf(`You are an expert learning coach acting as a "devil's advocate" to help deepen understanding through critical thinking.
+
+USER'S EXPLANATION: %s
+
+SOURCE MATERIAL: %s
+
+YOUR TASK: Play devil's advocate and challenge the user's understanding. Generate 4 challenging questions in this format:
+
+1. 🔥 Edge Cases: What scenarios would break or challenge their explanation?
+2. 🎯 Assumptions: What assumptions might be wrong in their reasoning?
+3. ⚡ Limitations: What are the limitations or boundaries of their approach?
+4. 🔄 Alternatives: What alternative perspectives or approaches could they consider?
+
+Make questions specific and thought-provoking. Don't be overly critical - aim to expand their thinking, not tear them down.`, userExplanation, noteContent)
+
+	payload := OllamaRequest{Model: "llama3:8b-instruct-q4_K_M", Prompt: prompt, Stream: false}
+	return sendOllamaRequest(payload)
+}
+
+// sendOllamaRequest is a private helper to reduce code duplication for the /api/generate endpoint.
+func sendOllamaRequest(payload OllamaRequest) (string, error) {
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.Post("http://localhost:11434/api/generate", "application/json", bytes.NewBuffer(payloadBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to send request to ollama: %w. Is Ollama running?", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	var ollamaResp OllamaResponse
+	if err := json.Unmarshal(body, &ollamaResp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal ollama response: %w. Response was: %s", err, string(body))
+	}
+	return strings.TrimSpace(ollamaResp.Response), nil
+}
+
+// SendChatMessage sends a list of messages to the Ollama chat endpoint and returns the AI's response.
+func SendChatMessage(messages []OllamaMessage) (OllamaMessage, error) {
+	payload := OllamaChatRequest{
+		Model:    "llama3:8b-instruct-q4_K_M",
+		Messages: messages,
+		Stream:   false,
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return OllamaMessage{}, err
+	}
+	resp, err := http.Post("http://localhost:11434/api/chat", "application/json", bytes.NewBuffer(payloadBytes))
+	if err != nil {
+		return OllamaMessage{}, fmt.Errorf("failed to send chat request to ollama: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return OllamaMessage{}, err
+	}
+	var ollamaResp OllamaChatResponse
+	if err := json.Unmarshal(body, &ollamaResp); err != nil {
+		return OllamaMessage{}, fmt.Errorf("failed to unmarshal ollama chat response: %w. Response was: %s", err, string(body))
+	}
+	return ollamaResp.Message, nil
+}
+
+// extractSummary is a private helper function.
+func extractSummary(fullContent string) string {
+	var summary, takeaways strings.Builder
+	inSummary := false
+	inTakeaways := false
+	scanner := bufio.NewScanner(strings.NewReader(fullContent))
+	for scanner.Scan() {
+		line := scanner.Text()
+		lowerLine := strings.ToLower(line)
+		if strings.HasPrefix(lowerLine, "## summary") {
+			inSummary = true
+			inTakeaways = false
+			continue
+		}
+		if strings.HasPrefix(lowerLine, "## key takeaways") {
+			inSummary = false
+			inTakeaways = true
+			continue
+		}
+		if strings.HasPrefix(lowerLine, "##") {
+			inSummary = false
+			inTakeaways = false
+		}
+		if inSummary {
+			if !strings.HasPrefix(lowerLine, "## summary") {
+				summary.WriteString(line + "\n")
+			}
+		}
+		if inTakeaways {
+			if !strings.HasPrefix(lowerLine, "## key takeaways") {
+				takeaways.WriteString(line + "\n")
+			}
+		}
+	}
+	combined := summary.String() + takeaways.String()
+	if len(strings.TrimSpace(combined)) > 10 {
+		return combined
+	}
+	return fullContent
 }
