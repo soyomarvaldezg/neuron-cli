@@ -13,6 +13,16 @@ import (
 	"github.com/soyomarvaldezg/neuron-cli/internal/note"
 )
 
+// QuestionType represents different types of questions that can be generated
+type QuestionType string
+
+const (
+	QuestionTypeFactual     QuestionType = "factual"
+	QuestionTypeConceptual  QuestionType = "conceptual"
+	QuestionTypeApplication QuestionType = "application"
+	QuestionTypeMixed       QuestionType = "mixed"
+)
+
 // OllamaRequest represents the JSON payload for the Ollama /api/generate endpoint.
 type OllamaRequest struct {
 	Model  string `json:"model"`
@@ -45,10 +55,91 @@ type OllamaChatResponse struct {
 	Done    bool          `json:"done"`
 }
 
-// GenerateQuestion asks the LLM to generate a review question based on a note's content.
-func GenerateQuestion(n *note.Note) (string, error) {
+// GenerateQuestion asks the LLM to generate a review question based on a note's content and question type.
+func GenerateQuestion(n *note.Note, questionType QuestionType) (string, error) {
 	promptContent := extractSummary(n.Content)
-	prompt := fmt.Sprintf(`You are an expert learning coach specializing in active recall. Generate ONE high-quality question that tests deep understanding of this material.
+
+	var prompt string
+	switch questionType {
+	case QuestionTypeFactual:
+		prompt = fmt.Sprintf(`You are an expert learning coach specializing in factual recall.
+Generate ONE factual recall question that tests specific knowledge from this material.
+
+RULES:
+1. Focus on definitions, facts, dates, names, or specific details
+2. Questions should have clear, objective answers
+3. Use these question types:
+   - "What is the definition of [concept]?"
+   - "Who developed [theory/method]?"
+   - "When did [event] occur?"
+   - "What are the key components of [system]?"
+4. Output ONLY the question, no preamble
+
+MATERIAL:
+---
+%s
+---`, promptContent)
+
+	case QuestionTypeConceptual:
+		prompt = fmt.Sprintf(`You are an expert learning coach specializing in conceptual understanding.
+Generate ONE conceptual question that tests deep understanding of relationships and principles.
+
+RULES:
+1. Focus on "why" and "how" questions
+2. Test understanding of underlying principles
+3. Use these question types:
+   - "Why does [concept] work the way it does?"
+   - "What is the relationship between [A] and [B]?"
+   - "How does [principle] explain [phenomenon]?"
+   - "What are the underlying assumptions of [theory]?"
+4. Output ONLY the question, no preamble
+
+MATERIAL:
+---
+%s
+---`, promptContent)
+
+	case QuestionTypeApplication:
+		prompt = fmt.Sprintf(`You are an expert learning coach specializing in practical application.
+Generate ONE application question that tests ability to apply concepts to real scenarios.
+
+RULES:
+1. Create scenarios that require applying the concept
+2. Focus on problem-solving and implementation
+3. Use these question types:
+   - "How would you apply [concept] to solve [problem]?"
+   - "What would happen if [condition] changed in [scenario]?"
+   - "Design a solution using [principle] for [situation]"
+   - "Given [context], how would you use [method]?"
+4. Output ONLY the question, no preamble
+
+MATERIAL:
+---
+%s
+---`, promptContent)
+
+	case QuestionTypeMixed:
+		prompt = fmt.Sprintf(`You are an expert learning coach specializing in comprehensive understanding.
+Generate ONE high-quality question that tests understanding of this material.
+
+RULES:
+1. Create questions that require thinking, not just memorization
+2. Mix of factual, conceptual, and application approaches
+3. Use these question types (choose the most appropriate):
+   - "How would you apply [concept] to [scenario]?"
+   - "What's the relationship between [A] and [B]?"
+   - "Why does [X] lead to [Y]?"
+   - "What would happen if [condition changed]?"
+4. Output ONLY the question, no preamble
+
+MATERIAL:
+---
+%s
+---`, promptContent)
+
+	default:
+		// Fallback to original behavior
+		prompt = fmt.Sprintf(`You are an expert learning coach specializing in active recall. Generate ONE high-quality question that tests deep understanding of this material.
 
 RULES:
 1. Create questions that require APPLICATION or ANALYSIS, not just memorization
@@ -64,6 +155,8 @@ MATERIAL:
 ---
 %s
 ---`, promptContent)
+	}
+
 	payload := OllamaRequest{Model: "llama3:8b-instruct-q4_K_M", Prompt: prompt, Stream: false}
 	return sendOllamaRequest(payload)
 }

@@ -20,10 +20,17 @@ import (
 // These variables will hold the values of the flags.
 var reviewAny bool
 var reviewBrief bool
+var questionType string
 
 var reviewCmd = &cobra.Command{
 	Use:   "review",
 	Short: "Start a spaced repetition review session",
+	Long: `Start a spaced repetition review session with notes that are due.
+Use --question-type to specify the type of questions generated:
+- factual: Questions about definitions, facts, and specific details
+- conceptual: Questions about relationships, principles, and "why" things work
+- application: Questions about applying concepts to real scenarios
+- mixed: A mix of all question types (default)`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		database, err := db.GetDB()
 		if err != nil {
@@ -51,8 +58,14 @@ var reviewCmd = &cobra.Command{
 			return fmt.Errorf("failed to fetch note: %w", err)
 		}
 
-		fmt.Println("🧠 Generating question...")
-		question, err := study.GenerateQuestion(dueNote)
+		// Convert string to QuestionType
+		qType := study.QuestionType(questionType)
+		if qType == "" {
+			qType = study.QuestionTypeMixed // Default to mixed
+		}
+
+		fmt.Printf("🧠 Generating %s question...\n", qType)
+		question, err := study.GenerateQuestion(dueNote, qType)
 		if err != nil {
 			return fmt.Errorf("failed to generate question: %w", err)
 		}
@@ -123,4 +136,5 @@ func init() {
 	rootCmd.AddCommand(reviewCmd)
 	reviewCmd.Flags().BoolVar(&reviewAny, "any", false, "Review any card, even if it's not due")
 	reviewCmd.Flags().BoolVar(&reviewBrief, "brief", false, "Skip showing full note, only show Q&A")
+	reviewCmd.Flags().StringVar(&questionType, "question-type", "mixed", "Type of question to generate: factual, conceptual, application, mixed")
 }

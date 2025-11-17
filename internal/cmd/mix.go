@@ -19,12 +19,18 @@ import (
 const reviewLimit = 3 // Number of notes to review in one 'mix' session
 
 var mixBrief bool
+var mixQuestionType string
 
 var mixCmd = &cobra.Command{
 	Use:   "mix",
 	Short: "Start an interleaved review session with random due notes",
 	Long: `Starts a review session with a small number of randomly selected notes
-that are currently due. This helps improve memory by forcing context switching.`,
+that are currently due. This helps improve memory by forcing context switching.
+Use --question-type to specify the type of questions generated:
+- factual: Questions about definitions, facts, and specific details
+- conceptual: Questions about relationships, principles, and "why" things work
+- application: Questions about applying concepts to real scenarios
+- mixed: A mix of all question types (default)`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		database, err := db.GetDB()
 		if err != nil {
@@ -40,6 +46,12 @@ that are currently due. This helps improve memory by forcing context switching.`
 			return err
 		}
 
+		// Convert string to QuestionType
+		qType := study.QuestionType(mixQuestionType)
+		if qType == "" {
+			qType = study.QuestionTypeMixed // Default to mixed
+		}
+
 		fmt.Printf("--- Starting Interleaved Review Session (%d notes) ---\n", len(notes))
 		reader := bufio.NewReader(os.Stdin)
 
@@ -47,8 +59,8 @@ that are currently due. This helps improve memory by forcing context switching.`
 		for i, dueNote := range notes {
 			fmt.Printf("\n--- Card %d of %d ---\n", i+1, len(notes))
 
-			fmt.Println("🧠 Generating question...")
-			question, err := study.GenerateQuestion(dueNote)
+			fmt.Printf("🧠 Generating %s question...\n", qType)
+			question, err := study.GenerateQuestion(dueNote, qType)
 			if err != nil {
 				fmt.Printf("Error generating question for %s: %v. Skipping.\n", dueNote.Title, err)
 				continue
@@ -119,4 +131,5 @@ that are currently due. This helps improve memory by forcing context switching.`
 func init() {
 	rootCmd.AddCommand(mixCmd)
 	mixCmd.Flags().BoolVar(&mixBrief, "brief", false, "Skip showing full note, only show Q&A")
+	mixCmd.Flags().StringVar(&mixQuestionType, "question-type", "mixed", "Type of question to generate: factual, conceptual, application, mixed")
 }
